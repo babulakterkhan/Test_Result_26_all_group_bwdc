@@ -4,6 +4,9 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>নির্বাচনী মার্কসিট ২০২৬</title>
+    <!-- Firebase SDKs -->
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-firestore-compat.js"></script>
     <style>
         * {
             margin: 0;
@@ -207,6 +210,13 @@
             background: #dc3545;
         }
         
+        .status-message {
+            margin-top: 10px;
+            padding: 8px;
+            border-radius: 5px;
+            font-size: 14px;
+        }
+        
         .marksheet {
             background: white;
             padding: 30px;
@@ -396,7 +406,7 @@
                     <input type="file" id="scienceFile" accept=".csv">
                     <button class="upload-btn science" onclick="uploadCSV('science')">আপলোড</button>
                 </div>
-                <div id="scienceStatus">মোট: <span id="scienceCount">০</span> জন</div>
+                <div id="scienceStatus" class="status-message">মোট: <span id="scienceCount">০</span> জন</div>
             </div>
             
             <div class="group-upload humanities">
@@ -405,7 +415,7 @@
                     <input type="file" id="humanitiesFile" accept=".csv">
                     <button class="upload-btn humanities" onclick="uploadCSV('humanities')">আপলোড</button>
                 </div>
-                <div id="humanitiesStatus">মোট: <span id="humanitiesCount">২</span> জন</div>
+                <div id="humanitiesStatus" class="status-message">মোট: <span id="humanitiesCount">২</span> জন</div>
             </div>
             
             <div class="group-upload business">
@@ -414,7 +424,7 @@
                     <input type="file" id="businessFile" accept=".csv">
                     <button class="upload-btn business" onclick="uploadCSV('business')">আপলোড</button>
                 </div>
-                <div id="businessStatus">মোট: <span id="businessCount">০</span> জন</div>
+                <div id="businessStatus" class="status-message">মোট: <span id="businessCount">০</span> জন</div>
             </div>
         </div>
     </div>
@@ -476,6 +486,21 @@
 </div>
 
 <script>
+    // Firebase কনফিগারেশন
+    const firebaseConfig = {
+        apiKey: "AIzaSyB-x4vtvwG3BAMDuLsr-WNt5jSTTKCNj9s",
+        authDomain: "result-efe56.firebaseapp.com",
+        projectId: "result-efe56",
+        storageBucket: "result-efe56.firebasestorage.app",
+        messagingSenderId: "282082969636",
+        appId: "1:282082969636:web:6526d08384a0493cad30b1",
+        measurementId: "G-366SJGJQKJ"
+    };
+
+    // Firebase Initialize
+    firebase.initializeApp(firebaseConfig);
+    const db = firebase.firestore();
+
     let studentData = {
         science: [],
         humanities: [
@@ -518,6 +543,51 @@
     };
     
     let currentGroup = 'humanities';
+    
+    // Firebase থেকে ডাটা লোড
+    window.onload = function() {
+        loadFromFirebase();
+    };
+    
+    async function loadFromFirebase() {
+        try {
+            const snapshot = await db.collection('students').get();
+            
+            if (!snapshot.empty) {
+                // ডাটা ক্লিয়ার
+                studentData.science = [];
+                studentData.humanities = [];
+                studentData.business = [];
+                
+                snapshot.forEach(doc => {
+                    const student = doc.data();
+                    if (student.group === 'science') {
+                        studentData.science.push(student);
+                    } else if (student.group === 'humanities') {
+                        studentData.humanities.push(student);
+                    } else if (student.group === 'business') {
+                        studentData.business.push(student);
+                    }
+                });
+            }
+            
+            updateCounts();
+            
+        } catch (error) {
+            console.error('Firebase load error:', error);
+            updateCounts();
+        }
+    }
+    
+    function updateCounts() {
+        const scienceCount = document.getElementById('scienceCount');
+        const humanitiesCount = document.getElementById('humanitiesCount');
+        const businessCount = document.getElementById('businessCount');
+        
+        if (scienceCount) scienceCount.textContent = studentData.science.length;
+        if (humanitiesCount) humanitiesCount.textContent = studentData.humanities.length;
+        if (businessCount) businessCount.textContent = studentData.business.length;
+    }
     
     function selectGroup(group) {
         currentGroup = group;
@@ -600,99 +670,199 @@
         }
     }
     
-    function updateCounts() {
-        document.getElementById('scienceCount').textContent = studentData.science.length;
-        document.getElementById('humanitiesCount').textContent = studentData.humanities.length;
-        document.getElementById('businessCount').textContent = studentData.business.length;
-    }
-    
-    // CSV আপলোড - সঠিক ইনডেক্স সহ
+    // CSV আপলোড - সম্পূর্ণ ঠিক করা
     function uploadCSV(group) {
-        const input = document.getElementById(group + 'File');
-        const file = input.files[0];
-        
-        if (!file) {
-            alert('CSV ফাইল সিলেক্ট করুন');
-            return;
-        }
-        
-        const reader = new FileReader();
-        
-        reader.onload = function(e) {
-            const content = e.target.result;
-            const lines = content.split(/\r\n|\n/);
+        try {
+            const input = document.getElementById(group + 'File');
+            if (!input) {
+                alert('ইনপুট ফাইল পাওয়া যায়নি');
+                return;
+            }
             
-            const students = [];
-            let currentStudent = null;
+            const file = input.files[0];
             
-            for (let i = 0; i < lines.length; i++) {
-                const line = lines[i].trim();
-                if (line === '') continue;
-                
-                const cells = line.split(',');
-                
-                // নতুন স্টুডেন্ট (Merit থাকলে)
-                if (cells[0] && cells[0].trim() !== '' && !isNaN(cells[0]) && cells[0] !== 'Merit') {
+            if (!file) {
+                alert('CSV ফাইল সিলেক্ট করুন');
+                return;
+            }
+            
+            // স্ট্যাটাস এলিমেন্ট চেক
+            const statusDiv = document.getElementById(group + 'Status');
+            if (!statusDiv) {
+                alert('স্ট্যাটাস এলিমেন্ট পাওয়া যায়নি');
+                return;
+            }
+            
+            // স্ট্যাটাস আপডেট
+            statusDiv.innerHTML = '⏳ আপলোড হচ্ছে...';
+            statusDiv.style.backgroundColor = '#fff3cd';
+            statusDiv.style.color = '#856404';
+            
+            const reader = new FileReader();
+            
+            reader.onload = function(e) {
+                try {
+                    const content = e.target.result;
+                    const lines = content.split(/\r\n|\n/);
+                    
+                    const students = [];
+                    let currentStudent = null;
+                    let studentCount = 0;
+                    
+                    for (let i = 0; i < lines.length; i++) {
+                        const line = lines[i].trim();
+                        if (line === '') continue;
+                        
+                        const cells = line.split(',').map(cell => cell.trim());
+                        
+                        // নতুন স্টুডেন্ট (Merit থাকলে)
+                        if (cells[0] && cells[0] !== '' && !isNaN(cells[0]) && cells[0] !== 'Merit' && cells[0] !== 'মেধাক্রম') {
+                            // আগের স্টুডেন্ট সেভ করি
+                            if (currentStudent) {
+                                students.push(currentStudent);
+                                studentCount++;
+                            }
+                            
+                            // নতুন স্টুডেন্ট তৈরি
+                            currentStudent = {
+                                group: group,
+                                merit: cells[0] || '',
+                                name: cells[1] || '',
+                                roll: cells[2] || '',
+                                total: cells[12] || '0',
+                                gpa: cells[13] || '0',
+                                fail: cells[14] ? parseInt(cells[14]) || 0 : 0,
+                                subjects: []
+                            };
+                        }
+                        // সাবজেক্টের লাইন
+                        else if (currentStudent && cells[3] && cells[3] !== '' && cells[3] !== 'Subject Code' && cells[3] !== 'বিষয় কোড') {
+                            const subject = {
+                                code: cells[3] || '',
+                                name: cells[4] || '',
+                                mcq: cells[5] || '-',
+                                cq: cells[6] || '-',
+                                prac: cells[7] || '-',
+                                total: cells[8] || '0',
+                                gp: cells[9] || '0',
+                                grade: cells[10] || ''
+                            };
+                            
+                            if (cells[11] && cells[11].includes('Failed')) {
+                                subject.grade = 'F';
+                                subject.gp = '0';
+                            }
+                            
+                            currentStudent.subjects.push(subject);
+                        }
+                    }
+                    
+                    // শেষ স্টুডেন্ট যোগ করি
                     if (currentStudent) {
                         students.push(currentStudent);
+                        studentCount++;
                     }
                     
-                    // সঠিক ইনডেক্স ব্যবহার করছি
-                    currentStudent = {
-                        merit: cells[0] ? cells[0].trim() : '',
-                        name: cells[1] ? cells[1].trim() : '',
-                        roll: cells[2] ? cells[2].trim() : '',
-                        total: cells[12] ? cells[12].trim() : '0',  // Total Score (ইনডেক্স ১২)
-                        gpa: cells[13] ? cells[13].trim() : '0',    // GPA (ইনডেক্স ১৩)
-                        fail: cells[14] ? parseInt(cells[14]) || 0 : 0, // Failed (ইনডেক্স ১৪)
-                        subjects: []
-                    };
-                }
-                // সাবজেক্টের লাইন
-                else if (currentStudent && cells[3] && cells[3].trim() === 'Subject Code') {
-                    // হেডার লাইন - কিছু করব না
-                }
-                else if (currentStudent && cells[3] && cells[3].trim() !== '') {
-                    const subject = {
-                        code: cells[3] ? cells[3].trim() : '',
-                        name: cells[4] ? cells[4].trim() : '',
-                        mcq: cells[5] ? cells[5].trim() : '-',
-                        cq: cells[6] ? cells[6].trim() : '-',
-                        prac: cells[7] ? cells[7].trim() : '-',
-                        total: cells[8] ? cells[8].trim() : '0',
-                        gp: cells[9] ? cells[9].trim() : '0',
-                        grade: cells[10] ? cells[10].trim() : ''
-                    };
-                    
-                    if (cells[11] && cells[11].includes('Failed')) {
-                        subject.grade = 'F';
-                        subject.gp = '0';
+                    if (students.length > 0) {
+                        // আগের ডাটা ব্যাকআপ রাখি
+                        const previousData = [...studentData[group]];
+                        
+                        // নতুন ডাটা সেট করি
+                        studentData[group] = students;
+                        
+                        // কাউন্ট আপডেট
+                        const countSpan = document.getElementById(group + 'Count');
+                        if (countSpan) {
+                            countSpan.textContent = students.length;
+                        }
+                        
+                        // স্ট্যাটাস আপডেট
+                        statusDiv.innerHTML = `✅ সফলভাবে ${students.length} জন শিক্ষার্থীর ডাটা আপলোড হয়েছে`;
+                        statusDiv.style.backgroundColor = '#d4edda';
+                        statusDiv.style.color = '#155724';
+                        
+                        alert(`${students.length} জন শিক্ষার্থীর ডাটা লোড হয়েছে`);
+                        
+                        // Firebase-এ সেভ করার চেষ্টা
+                        saveToFirebase(students, group, previousData);
+                        
+                        // ফাইল ইনপুট ক্লিয়ার
+                        input.value = '';
+                        
+                    } else {
+                        statusDiv.innerHTML = '❌ কোনো ভ্যালিড ডাটা পাওয়া যায়নি';
+                        statusDiv.style.backgroundColor = '#f8d7da';
+                        statusDiv.style.color = '#721c24';
+                        alert('কোনো ভ্যালিড ডাটা পাওয়া যায়নি। CSV ফাইলের ফরম্যাট চেক করুন।');
                     }
                     
-                    currentStudent.subjects.push(subject);
+                } catch (error) {
+                    console.error('Parse error:', error);
+                    if (statusDiv) {
+                        statusDiv.innerHTML = '❌ ডাটা পার্স করতে সমস্যা হয়েছে';
+                        statusDiv.style.backgroundColor = '#f8d7da';
+                        statusDiv.style.color = '#721c24';
+                    }
+                    alert('ডাটা পার্স করতে সমস্যা হয়েছে: ' + error.message);
                 }
-            }
+            };
             
-            if (currentStudent) {
-                students.push(currentStudent);
-            }
+            reader.onerror = function() {
+                if (statusDiv) {
+                    statusDiv.innerHTML = '❌ ফাইল পড়তে সমস্যা হয়েছে';
+                    statusDiv.style.backgroundColor = '#f8d7da';
+                    statusDiv.style.color = '#721c24';
+                }
+                alert('ফাইল পড়তে সমস্যা হয়েছে');
+            };
             
-            if (students.length > 0) {
-                studentData[group] = students;
-                document.getElementById(group + 'Count').textContent = students.length;
-                document.getElementById(group + 'Status').innerHTML = `✅ মোট: ${students.length} জন (লোড হয়েছে)`;
-                alert(`${students.length} জন শিক্ষার্থীর ডাটা লোড হয়েছে`);
-            } else {
-                alert('কোনো ভ্যালিড ডাটা পাওয়া যায়নি');
-            }
-        };
-        
-        reader.readAsText(file, 'UTF-8');
+            reader.readAsText(file, 'UTF-8');
+            
+        } catch (error) {
+            console.error('Upload error:', error);
+            alert('আপলোড করতে সমস্যা হয়েছে: ' + error.message);
+        }
     }
     
-    window.onload = function() {
-        updateCounts();
-    };
+    // Firebase-এ ডাটা সেভ করার ফাংশন
+    async function saveToFirebase(students, group, previousData) {
+        try {
+            // আগের ডাটা ডিলিট করি (ঐ গ্রুপের)
+            const snapshot = await db.collection('students')
+                .where('group', '==', group)
+                .get();
+            
+            const batch = db.batch();
+            
+            // আগের ডাটা ডিলিট
+            snapshot.forEach(doc => {
+                batch.delete(doc.ref);
+            });
+            
+            // নতুন ডাটা যোগ
+            students.forEach(student => {
+                const docRef = db.collection('students').doc();
+                batch.set(docRef, student);
+            });
+            
+            await batch.commit();
+            console.log(`${group} গ্রুপের ডাটা Firebase-এ সেভ হয়েছে`);
+            
+        } catch (error) {
+            console.error('Firebase save error:', error);
+            // সমস্যা হলে আগের ডাটা ফিরিয়ে আনি
+            studentData[group] = previousData;
+            updateCounts();
+            
+            // স্ট্যাটাস আপডেট
+            const statusDiv = document.getElementById(group + 'Status');
+            if (statusDiv) {
+                statusDiv.innerHTML += '<br>⚠️ Firebase-এ সেভ করতে সমস্যা হয়েছে, কিন্তু লোকাল ডাটা সংরক্ষিত আছে';
+                statusDiv.style.backgroundColor = '#fff3cd';
+                statusDiv.style.color = '#856404';
+            }
+        }
+    }
 </script>
 </body>
 </html>
